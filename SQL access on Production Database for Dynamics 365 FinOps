@@ -1,0 +1,112 @@
+class DevSQLToCSVHelper
+{
+    public static void Main(Args _args)
+    {
+        Dialog Dialog = new Dialog("SQL");
+        DialogField queryInput = Dialog.addField(extendedTypeStr(DevSQLStringInput),"SQL query");
+        Dialog.run();
+
+        if(Dialog.closedOk() && queryInput.value())
+        {
+            str query = queryInput.value();
+            str csvFileContent = DevSQLToCSVHelper::getExpectedResultFromQuery(query);
+            File::SendStringAsFileToUser(csvFileContent,'sqlresult.csv');
+        }
+    }
+
+    public static str getExpectedResultFromQuery(str queryStmt)
+    {
+        str     strresult;
+        try
+        {
+            strresult = DevSQLToCSVHelper::resultSetExecuteQuery(queryStmt);
+        }
+        catch
+        {
+            Error('Error');
+        }
+        return strresult;
+    }
+
+    private server static str resultSetExecuteQuery(str strQuery)
+    {
+        int i,colType,counter;
+        str csvFileContent;
+        container expectedColumnResult, expectedSubResult, expectedResult;
+        boolean caninsert = true;
+        ResultSet resultSet = DevSQLToCSVHelper::resultSelectExecuteQuery(strQuery);
+        CommaTextStreamIo io = CommaTextStreamIo::constructForWrite();
+        
+        while(resultSet.next())
+        {
+            expectedSubResult = connull();
+
+            if(caninsert)
+            {
+                for ( i = 1; i <= resultSet.getMetaData().getColumnCount(); i++)
+                {
+                    expectedColumnResult += resultSet.getMetaData().getColumnName(i);
+                }
+                io.writeExp(expectedColumnResult);
+                expectedResult += [expectedColumnResult];
+                caninsert = false;
+            }
+
+            for ( i = 1; i <= resultSet.getMetaData().getColumnCount(); i++)
+            {
+                colType = resultSet.getMetaData().getColumnType(i);
+                switch (colType)
+                {
+                    case 0: // String
+                    case 8: // Memo
+                        expectedSubResult += resultSet.getString(i);
+                        break;
+                    case 1: // Interger
+                        expectedSubResult += resultSet.getInt(i);
+                        break;
+                    case 2: // Real
+                        expectedSubResult += resultSet.getReal(i);
+                        break;
+                    case 3: // Date
+                        expectedSubResult += resultSet.getDate(i);
+                        break;
+                    case 4: // Enum
+                        expectedSubResult += resultSet.getBoolean(i);
+                        break;
+                    case 6: // UtcDateTime
+                        expectedSubResult += dateTime2str(resultSet.getDateTime(i));
+                        break;
+                    case 45: // Guid
+                        expectedSubResult += guid2str(resultSet.getGuid(i));
+                        break;
+                    case 49: // Int64
+                        expectedSubResult += resultSet.getInt64(i);
+                        break;
+                    default:
+                        break;
+                }
+            }
+            io.writeExp(expectedSubResult);
+        }
+        System.IO.Stream stream = io.getStream();
+        stream.Position = 0;
+        System.IO.StreamReader reader = new System.IO.StreamReader(stream);
+        csvFileContent = reader.ReadToEnd();
+        return csvFileContent;
+    }
+
+    private server static ResultSet resultSelectExecuteQuery(str strQuery)
+    {
+        Connection  connection = new Connection();
+        Statement   statement = connection.createStatement();
+        SqlStatementExecutePermission permission;
+        ResultSet resultSet;
+           
+        strQuery = strfmt(strQuery,SRSStatementQuery::getDbSchemaPrefix());
+        permission = new SqlStatementExecutePermission(strQuery);
+        permission.assert();
+        resultSet = statement.executeQuery(strQuery);
+        return resultSet;
+    }
+
+}
